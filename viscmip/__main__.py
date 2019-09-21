@@ -51,11 +51,12 @@ def plot_file(inpath, outpath, varname):
 def plot_var(varname, varpath, outpath, client):
 
     futures = list()
+    import ipdb; ipdb.set_trace()
 
     anim_out_path = os.path.join(outpath, varname)
     if not os.path.exists(anim_out_path):
         os.makedirs(anim_out_path)
-    for _, _, files in os.walk(varpath):
+    for root, _, files in os.walk(varpath):
         if not files:
             continue
         for f in files:
@@ -80,7 +81,6 @@ def main():
     cluster.start_workers(args_.nodes)
     client = Client(cluster)
 
-    import ipdb; ipdb.set_trace()
     futures = list()
 
     if not os.path.exists(args_.cmip_dir):
@@ -116,7 +116,7 @@ def main():
                     varpath = os.path.join(
                         args_.cmip_dir,  case, e, table, var)
                     plot_var(varname = var, varpath = varpath,
-                             outpath = args_.outpath, client = client)
+                             outpath = args_.output, client = client)
 
     return 0
 
