@@ -97,18 +97,24 @@ def main():
         if case not in args_.tables and args_.tables != ['all']:
             continue
 
-        ens = os.listdir(os.path.join(args_.cmip_dir))
-        for e in args_.ens:
+        ens = os.listdir(os.path.join(args_.cmip_dir, case))
+        for e in ens:
             if args_.ens != ['all'] and e not in variant_ids:
                 continue
 
-            variables = os.listdir(os.path.join(args_.cmip_dir,  case, ens))
-            for var in variables:
-                if var not in args_.variables and args_.variables != ['all']:
+            tables = os.listdir(os.path.join(args_.cmip_dir,  case, e))
+
+            for table in tables:
+                if args_.tables != ['all'] and table not in args_.tables:
                     continue
-                var_path = os.listdir(os.path.join(
-                    args_.cmip_dir,  case, ens, var))
-                plot_var(var_path, client)
+
+                variables = os.listdir(os.path.join(args_.cmip_dir,  case, e, table))
+                for var in variables:
+                    if var not in args_.variables and args_.variables != ['all']:
+                        continue
+                    var_path = os.listdir(os.path.join(
+                        args_.cmip_dir,  case, ens, var))
+                    plot_var(var_path, client)
 
     return 0
 
