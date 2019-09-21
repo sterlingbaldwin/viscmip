@@ -70,7 +70,8 @@ def main():
 
     args_ = parse_args()
     import ipdb; ipdb.set_trace()
-    cluster = SLURMCluster(project="e3sm",
+    cluster = SLURMCluster(cores=4,
+                           project="e3sm",
                            walltime="01:00:00",
                            queue="normal")
     cluster.start_workers(args_.nodes)
