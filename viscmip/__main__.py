@@ -49,14 +49,14 @@ def make_pngs(inpath, outpath, varname, serial=False):
         pbar = tqdm(total=vardata.shape[0], desc="starting: {}".format(varname))
     for step in range(vardata.shape[0]):
         time = round(vardata.getTime()[step])
-        png = os.path.join(pngs_path, '{:06f}.png'.format(time))
+        png = os.path.join(pngs_path, '{}.png'.format(time))
         if os.path.exists(png):
             continue
         
         x.plot(vardata[step])
         x.png(png, width=1200, height=1000, units='pixels')
         if serial:
-            pbar.set_description("plotting: {} - {:06f}".format(varname, time))
+            pbar.set_description("plotting: {} - {}".format(varname, time))
             pbar.update(1)
     if serial:
         pbar.close()
