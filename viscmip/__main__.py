@@ -88,9 +88,9 @@ def plot_var(varname, varpath, outpath, client):
 
     x = vcs.init(geometry=(1200, 1000))
     if client:
-        client.submit(x.ffmpg(anim_out_path, pngs_paths))
+        client.submit(x.ffmpeg(anim_out_path, pngs_paths))
     else:
-        x.ffmpg(anim_out_path, pngs_paths)
+        x.ffmpeg(anim_out_path, pngs_paths)
 
 
 def main():
