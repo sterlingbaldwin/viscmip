@@ -71,6 +71,8 @@ def plot_var(varname, varpath, outpath, client):
         os.makedirs(outpath)
 
     pngs_paths = list()
+    if client:
+        futures = list()
 
     for root, _, files in os.walk(varpath):
         if not files:
@@ -81,14 +83,18 @@ def plot_var(varname, varpath, outpath, client):
 
             print('Rendering', inpath, out)
             if client:
-                pngs_paths.append(
+                futures.append(
                     client.submit(make_pngs, inpath, out, varname))
             else:
                 pngs_paths.extend(make_pngs(inpath, out, varname, serial=True))
 
+    if client:
+        for f in futures:
+            pngs_paths.append(f.result())
+
     x = vcs.init(geometry=(1200, 1000))
     if client:
-        client.submit(print, pngs_paths)
+        print(pngs_paths)
         client.submit(x.ffmpeg(anim_out_path, pngs_paths))
     else:
         x.ffmpeg(anim_out_path, pngs_paths)
