@@ -12,7 +12,8 @@ from distributed import Client
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('cmip_dir', help="the source CMIP6 directory")
-    parser.add_argument('-o', '--output', help="output path, default is ./animations", default="animations")
+    parser.add_argument(
+        '-o', '--output', help="output path, default is ./animations", default="animations")
     parser.add_argument(
         '-c', '--cases', help="the list of cases to animate, default is all", default=["all"])
     parser.add_argument(
@@ -31,7 +32,7 @@ def parse_args():
 
 
 def plot_file(inpath, outpath, varname):
-    
+
     dataset = cdms2.open(inpath)
     vardata = dataset[varname]
     x = vcs.init()
@@ -70,7 +71,6 @@ def main():
 
     args_ = parse_args()
 
-
     print("starting cluster")
     cluster = SLURMCluster(cores=4,
                            memory="1 M",
@@ -79,7 +79,7 @@ def main():
                            queue="slurm")
     cluster.start_workers(args_.nodes)
     client = Client(cluster)
-    
+
     import ipdb; ipdb.set_trace()
     futures = list()
 
@@ -88,7 +88,7 @@ def main():
 
     if args_.ens != ['all']:
         variant_ids = ["r{}i1p1f1".format(x) for x in args_.ens]
-    
+
     if not isinstance(args_.variables, list):
         args_.variables = [args_.variables]
 
@@ -108,13 +108,15 @@ def main():
                 if args_.tables != ['all'] and table not in args_.tables:
                     continue
 
-                variables = os.listdir(os.path.join(args_.cmip_dir,  case, e, table))
+                variables = os.listdir(os.path.join(
+                    args_.cmip_dir,  case, e, table))
                 for var in variables:
                     if var not in args_.variables and args_.variables != ['all']:
                         continue
-                    var_path = os.listdir(os.path.join(
+                    varpath = os.path.join(
                         args_.cmip_dir,  case, e, table, var))
-                    plot_var(var_path, client)
+                    plot_var(varname = var, varpath = varpath,
+                             outpath = args_.outpath, client = client)
 
     return 0
 
