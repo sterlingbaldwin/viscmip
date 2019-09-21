@@ -48,14 +48,15 @@ def make_pngs(inpath, outpath, varname, serial=False):
     if serial:
         pbar = tqdm(total=vardata.shape[0], desc="starting: {}".format(varname))
     for step in range(vardata.shape[0]):
-        png = os.path.join(pngs_path, '{:06d}.png'.format(step))
+        time = vardata.getTime()[step]
+        png = os.path.join(pngs_path, '{:06d}.png'.format(time))
         if os.path.exists(png):
             continue
         
         x.plot(vardata[step])
         x.png(png, width=1200, height=1000, units='pixels')
         if serial:
-            pbar.set_description("plotting: {} - {}".format(varname, vardata.getTime()[step]))
+            pbar.set_description("plotting: {} - {}".format(varname, time))
             pbar.update(1)
     if serial:
         pbar.close()
@@ -96,9 +97,9 @@ def main():
 
     args_ = parse_args()
 
-    print("starting cluster")
 
     if not args_.serial:
+        print("starting cluster")
         cluster = SLURMCluster(cores=4,
                                memory="1 M",
                                project="e3sm",
