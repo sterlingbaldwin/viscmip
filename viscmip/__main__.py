@@ -39,14 +39,16 @@ def plot_file(inpath, outpath, varname):
     vardata = dataset[varname]
     x = vcs.init()
 
+    pngs_path = os.path.join(outpath, 'pngs')
+
     # assuming that the 0th axis is time
     for step in range(vardata.shape[0]):
-        png = os.path.join(outpath, 'pngs', '{:06d}.png'.format(step))
+        png = os.path.join(pngs_path, '{:06d}.png'.format(step))
         x.plot(vardata[step])
         x.png(png, width=1200, height=1000, units='pixels')
 
     anim_name = os.path.join(outpath, "{}.mp4".format(varname))
-    pngs = sorted(glob.glob(outpath + "/pngs/*png"))
+    pngs = sorted(glob.glob(os.path.join(pngs_path, "*png")))
     x.ffmpeg(anim_name, pngs)
 
 
