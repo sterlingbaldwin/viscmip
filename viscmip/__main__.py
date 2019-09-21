@@ -26,6 +26,8 @@ def parse_args():
         '-t', '--tables', help="a list of tables to animate, default is all", default=["all"])
     parser.add_argument(
         '-n', '--nodes', help="the number of nodes to use to plot in parallel, default = 1", default=1, type=int)
+    parser.add_argument(
+        '-s', '--serial', help="run on the local node, nothing is submitted to slurm", action="store_true")
 
     args_ = parser.parse_args(sys.argv[1:])
     return args_
@@ -51,7 +53,6 @@ def plot_file(inpath, outpath, varname):
 def plot_var(varname, varpath, outpath, client):
 
     futures = list()
-    import ipdb; ipdb.set_trace()
 
     anim_out_path = os.path.join(outpath, varname)
     if not os.path.exists(anim_out_path):
@@ -64,8 +65,11 @@ def plot_var(varname, varpath, outpath, client):
             out = os.path.join(outpath, varname)
 
             print('submitting', varname, inpath, out)
-            futures.append(
-                client.submit(plot_file, inpath, out, varname))
+            if client:
+                futures.append(
+                    client.submit(plot_file, inpath, out, varname))
+            else:
+                plot_file(inpath, out, varname)
 
 
 def main():
@@ -73,13 +77,17 @@ def main():
     args_ = parse_args()
 
     print("starting cluster")
-    cluster = SLURMCluster(cores=4,
-                           memory="1 M",
-                           project="e3sm",
-                           walltime="01:00:00",
-                           queue="slurm")
-    cluster.start_workers(args_.nodes)
-    client = Client(cluster)
+
+    if not args_.serial:
+        cluster = SLURMCluster(cores=4,
+                            memory="1 M",
+                            project="e3sm",
+                            walltime="01:00:00",
+                            queue="slurm")
+        cluster.start_workers(args_.nodes)
+        client = Client(cluster)
+    else:
+        client = None
 
     futures = list()
 
@@ -115,8 +123,8 @@ def main():
                         continue
                     varpath = os.path.join(
                         args_.cmip_dir,  case, e, table, var)
-                    plot_var(varname = var, varpath = varpath,
-                             outpath = args_.output, client = client)
+                    plot_var(varname=var, varpath=varpath,
+                             outpath=args_.output, client=client)
 
     return 0
 
