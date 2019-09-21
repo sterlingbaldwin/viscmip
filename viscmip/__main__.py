@@ -34,11 +34,11 @@ def parse_args():
     return args_
 
 
-def plot_file(inpath, outpath, varname, serial=False):
+def make_pngs(inpath, outpath, varname, serial=False):
 
     dataset = cdms2.open(inpath)
     vardata = dataset[varname]
-    x = vcs.init(geometry=(1200,1000))
+    x = vcs.init(geometry=(1200, 1000))
 
     pngs_path = os.path.join(outpath, 'pngs')
     if not os.path.exists(pngs_path):
@@ -47,7 +47,7 @@ def plot_file(inpath, outpath, varname, serial=False):
     # assuming that the 0th axis is time
     if serial:
         pbar = tqdm(total=vardata.shape[0], desc="plotting {}".format(varname))
-    for step in tqdm(range(vardata.shape[0])):
+    for step in range(vardata.shape[0]):
         png = os.path.join(pngs_path, '{:06d}.png'.format(step))
         x.plot(vardata[step])
         x.png(png, width=1200, height=1000, units='pixels')
@@ -56,18 +56,17 @@ def plot_file(inpath, outpath, varname, serial=False):
     if serial:
         pbar.close()
 
-    anim_name = os.path.join(outpath, "{}.mp4".format(varname))
-    pngs = sorted(glob.glob(os.path.join(pngs_path, "*png")))
-    x.ffmpeg(anim_name, pngs)
+    return png
 
 
 def plot_var(varname, varpath, outpath, client):
 
-    futures = list()
-
     anim_out_path = os.path.join(outpath, varname)
-    if not os.path.exists(anim_out_path):
-        os.makedirs(anim_out_path)
+    if not os.path.exists(outpath):
+        os.makedirs(outpath)
+
+    pngs_paths = list()
+
     for root, _, files in os.walk(varpath):
         if not files:
             continue
@@ -75,12 +74,20 @@ def plot_var(varname, varpath, outpath, client):
             inpath = os.path.join(root, f)
             out = os.path.join(outpath, varname)
 
-            print('submitting', varname, inpath, out)
+            print('Rendering', varname, inpath, out)
             if client:
-                futures.append(
-                    client.submit(plot_file, inpath, out, varname))
+                pngs_paths.append(
+                    client.submit(make_pngs, inpath, out, varname))
             else:
-                plot_file(inpath, out, varname, serial=True)
+                pngs_paths.extend(make_pngs(inpath, out, varname, serial=True))
+
+    import ipdb
+    ipdb.set_trace()
+    x = vcs.init(geometry=(1200, 1000))
+    if client:
+        client.submit(x.ffmpg(anim_out_path, pngs_paths))
+    else:
+        x.ffmpg(anim_out_path, pngs_paths)
 
 
 def main():
@@ -91,10 +98,10 @@ def main():
 
     if not args_.serial:
         cluster = SLURMCluster(cores=4,
-                            memory="1 M",
-                            project="e3sm",
-                            walltime="01:00:00",
-                            queue="slurm")
+                               memory="1 M",
+                               project="e3sm",
+                               walltime="01:00:00",
+                               queue="slurm")
         cluster.start_workers(args_.nodes)
         client = Client(cluster)
     else:
