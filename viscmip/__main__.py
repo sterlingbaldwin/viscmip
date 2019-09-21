@@ -114,7 +114,7 @@ def main():
                     if var not in args_.variables and args_.variables != ['all']:
                         continue
                     varpath = os.path.join(
-                        args_.cmip_dir,  case, e, table, var))
+                        args_.cmip_dir,  case, e, table, var)
                     plot_var(varname = var, varpath = varpath,
                              outpath = args_.outpath, client = client)
 
