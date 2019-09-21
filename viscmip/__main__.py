@@ -46,12 +46,16 @@ def make_pngs(inpath, outpath, varname, serial=False):
 
     # assuming that the 0th axis is time
     if serial:
-        pbar = tqdm(total=vardata.shape[0], desc="plotting {}".format(varname))
+        pbar = tqdm(total=vardata.shape[0], desc="starting: {}".format(varname))
     for step in range(vardata.shape[0]):
         png = os.path.join(pngs_path, '{:06d}.png'.format(step))
+        if os.path.exists(png):
+            continue
+        
         x.plot(vardata[step])
         x.png(png, width=1200, height=1000, units='pixels')
         if serial:
+            pbar.set_description("plotting: {} - {}".format(varname, vardata.getTime()[step]))
             pbar.update(1)
     if serial:
         pbar.close()
@@ -74,15 +78,13 @@ def plot_var(varname, varpath, outpath, client):
             inpath = os.path.join(root, f)
             out = os.path.join(outpath, varname)
 
-            print('Rendering', varname, inpath, out)
+            print('Rendering', inpath, out)
             if client:
                 pngs_paths.append(
                     client.submit(make_pngs, inpath, out, varname))
             else:
                 pngs_paths.extend(make_pngs(inpath, out, varname, serial=True))
 
-    import ipdb
-    ipdb.set_trace()
     x = vcs.init(geometry=(1200, 1000))
     if client:
         client.submit(x.ffmpg(anim_out_path, pngs_paths))
