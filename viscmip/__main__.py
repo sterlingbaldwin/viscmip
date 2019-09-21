@@ -38,7 +38,7 @@ def plot_file(inpath, outpath, varname, serial=False):
 
     dataset = cdms2.open(inpath)
     vardata = dataset[varname]
-    x = vcs.init(geometry=(1200,800))
+    x = vcs.init(geometry=(1200,1000))
 
     pngs_path = os.path.join(outpath, 'pngs')
     if not os.path.exists(pngs_path):
