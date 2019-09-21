@@ -5,6 +5,7 @@ import glob
 import cdms2
 import vcs
 
+from tqdm import tqdm
 from dask_jobqueue import SLURMCluster
 from distributed import Client
 
@@ -33,19 +34,25 @@ def parse_args():
     return args_
 
 
-def plot_file(inpath, outpath, varname):
+def plot_file(inpath, outpath, varname, serial=False):
 
     dataset = cdms2.open(inpath)
     vardata = dataset[varname]
-    x = vcs.init()
+    x = vcs.init(geometry=(1200,800))
 
     pngs_path = os.path.join(outpath, 'pngs')
+    if not os.path.exists(pngs_path):
+        os.makedirs(pngs_path)
 
     # assuming that the 0th axis is time
-    for step in range(vardata.shape[0]):
+    if serial:
+        pbar = tqdm(total=vardata.shape, desc="plotting {}".format(varname))
+    for step in tqdm(range(vardata.shape[0])):
         png = os.path.join(pngs_path, '{:06d}.png'.format(step))
         x.plot(vardata[step])
         x.png(png, width=1200, height=1000, units='pixels')
+        pbar.update(1)
+    pbar.close()
 
     anim_name = os.path.join(outpath, "{}.mp4".format(varname))
     pngs = sorted(glob.glob(os.path.join(pngs_path, "*png")))
@@ -71,7 +78,7 @@ def plot_var(varname, varpath, outpath, client):
                 futures.append(
                     client.submit(plot_file, inpath, out, varname))
             else:
-                plot_file(inpath, out, varname)
+                plot_file(inpath, out, varname, serial=True)
 
 
 def main():
