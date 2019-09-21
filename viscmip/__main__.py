@@ -22,7 +22,7 @@ def parse_args():
     parser.add_argument(
         '-v', '--variables', help="which variables to animate, default is all", default=["all"])
     parser.add_argument(
-        '-t', '--tablrs', help="a list of tables to animate, default is all", default=["all"])
+        '-t', '--tables', help="a list of tables to animate, default is all", default=["all"])
     parser.add_argument(
         '-n', '--nodes', help="the number of nodes to use to plot in parallel, default = 1", default=1, type=int)
 
@@ -69,13 +69,18 @@ def plot_var(varname, varpath, outpath, client):
 def main():
 
     args_ = parse_args()
-    import ipdb; ipdb.set_trace()
+
+
+    print("starting cluster")
     cluster = SLURMCluster(cores=4,
+                           memory="1 M",
                            project="e3sm",
                            walltime="01:00:00",
-                           queue="normal")
+                           queue="slurm")
     cluster.start_workers(args_.nodes)
     client = Client(cluster)
+    
+    import ipdb; ipdb.set_trace()
     futures = list()
 
     if not os.path.exists(args_.cmip_dir):
@@ -83,6 +88,9 @@ def main():
 
     if args_.ens != ['all']:
         variant_ids = ["r{}i1p1f1".format(x) for x in args_.ens]
+    
+    if not isinstance(args_.variables, list):
+        args_.variables = [args_.variables]
 
     cases = os.listdir(args_.cmip_dir)
     for case in cases:
