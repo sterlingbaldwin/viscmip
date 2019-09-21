@@ -46,13 +46,15 @@ def plot_file(inpath, outpath, varname, serial=False):
 
     # assuming that the 0th axis is time
     if serial:
-        pbar = tqdm(total=vardata.shape, desc="plotting {}".format(varname))
+        pbar = tqdm(total=vardata.shape[0], desc="plotting {}".format(varname))
     for step in tqdm(range(vardata.shape[0])):
         png = os.path.join(pngs_path, '{:06d}.png'.format(step))
         x.plot(vardata[step])
         x.png(png, width=1200, height=1000, units='pixels')
-        pbar.update(1)
-    pbar.close()
+        if serial:
+            pbar.update(1)
+    if serial:
+        pbar.close()
 
     anim_name = os.path.join(outpath, "{}.mp4".format(varname))
     pngs = sorted(glob.glob(os.path.join(pngs_path, "*png")))
