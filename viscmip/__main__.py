@@ -3,7 +3,6 @@ import sys
 import argparse
 import glob
 import cdms2
-import vcs
 
 from tqdm import tqdm
 from dask_jobqueue import SLURMCluster
@@ -35,7 +34,7 @@ def parse_args():
 
 
 def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600)):
-
+    import vcs
     dataset = cdms2.open(inpath)
     vardata = dataset[varname]
     x = vcs.init(geometry=res)
@@ -69,7 +68,7 @@ def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600)):
 
 
 def make_mp4(varname, pngs_path, res=(800, 600)):
-
+    import vcs
     canvas = vcs.init(geometry=res)
     canvas.ffmpeg('{}.mp4'.format(varname), sorted(
         glob.glob("{}/*pngs".format(pngs_path))))
