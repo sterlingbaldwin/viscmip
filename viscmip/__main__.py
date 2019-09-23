@@ -44,6 +44,7 @@ def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600)):
     if not os.path.exists(pngs_path):
         os.makedirs(pngs_path)
 
+    pngs = list()
     # assuming that the 0th axis is time
     # if serial:
     pbar = tqdm(total=vardata.shape[0], desc="starting: {}".format(varname))
@@ -57,13 +58,14 @@ def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600)):
         x.clear()
         x.plot(vardata[step])
         x.png(png, width=res[0], height=res[1], units='pixels')
+        pngs.append(png)
         # if serial:
         pbar.set_description("plotting: {} - {}".format(varname, time))
         pbar.update(1)
     # if serial:
     pbar.close()
 
-    return png
+    return pngs
 
 
 def make_mp4(varname, pngs_path, res=(800, 600)):
@@ -100,14 +102,16 @@ def plot_var(varname, varpath, outpath, client, res=(800, 600)):
                 pngs_paths.extend(make_pngs(inpath, out, varname, serial=True))
 
     if client:
-        for f, res in as_completed(futures, with_results=True):
+        for future, png in as_completed(futures, with_results=True):
             pbar.set_description('Rendering pngs: {}-{}', varname, filename)
-            pngs_paths.append(res)
+            pngs_paths.extend(png)
 
-    _, head = os.path.split(pngs_paths)
+    _, head = os.path.split(pngs_paths[0])
     print("Setting up mpeg4")
     if client:
-        client.submit(make_mp4, varname, head)
+        f = client.submit(make_mp4, varname, head)
+        f.result()
+
     else:
         make_mp4(varname, head)
 
