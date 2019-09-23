@@ -7,7 +7,7 @@ import vcs
 
 from tqdm import tqdm
 from dask_jobqueue import SLURMCluster
-from distributed import Client, as_completed
+from distributed import Client, as_completed, LocalCluster
 
 
 def parse_args():
@@ -123,12 +123,12 @@ def main():
 
     if not args_.serial:
         print("starting cluster")
-        cluster=SLURMCluster(cores = 4,
-                               memory = "1 M",
-                               project = "e3sm",
-                               walltime = "02:00:00",
-                               queue = "slurm")
-        cluster.start_workers(args_.nodes)
+        # cluster=SLURMCluster(cores = 4,
+        #                        memory = "1 M",
+        #                        project = "e3sm",
+        #                        walltime = "02:00:00",
+        #                        queue = "slurm")
+        cluster = LocalCluster(args_.nodes)
         client=Client(cluster)
     else:
         client=None
