@@ -7,7 +7,7 @@ import vcs
 
 from tqdm import tqdm
 from dask_jobqueue import SLURMCluster
-from distributed import Client
+from distributed import Client, as_completed
 
 
 def parse_args():
@@ -34,39 +34,47 @@ def parse_args():
     return args_
 
 
-def make_pngs(inpath, outpath, varname, serial=False):
+def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600)):
 
     dataset = cdms2.open(inpath)
     vardata = dataset[varname]
-    x = vcs.init(geometry=(1200, 1000))
+    x = vcs.init(geometry=res)
 
     pngs_path = os.path.join(outpath, 'pngs')
     if not os.path.exists(pngs_path):
         os.makedirs(pngs_path)
 
     # assuming that the 0th axis is time
-    if serial:
-        pbar = tqdm(total=vardata.shape[0], desc="starting: {}".format(varname))
+    # if serial:
+    pbar = tqdm(total=vardata.shape[0], desc="starting: {}".format(varname))
     for step in range(vardata.shape[0]):
-        time = round(vardata.getTime()[step])
+        time = int(round(vardata.getTime()[step]))
         png = os.path.join(pngs_path, '{}.png'.format(time))
         if os.path.exists(png):
+            print("png {} already exists")
             continue
-        
+
+        x.clear()
         x.plot(vardata[step])
-        x.png(png, width=1200, height=1000, units='pixels')
-        if serial:
-            pbar.set_description("plotting: {} - {}".format(varname, time))
-            pbar.update(1)
-    if serial:
-        pbar.close()
+        x.png(png, width=res[0], height=res[1], units='pixels')
+        # if serial:
+        pbar.set_description("plotting: {} - {}".format(varname, time))
+        pbar.update(1)
+    # if serial:
+    pbar.close()
 
     return png
 
 
-def plot_var(varname, varpath, outpath, client):
+def make_mp4(varname, pngs_path, res=(800, 600)):
 
-    anim_out_path = os.path.join(outpath, varname)
+    canvas = vcs.init(geometry=res)
+    canvas.ffmpeg('{}.mp4'.format(varname), sorted(
+        glob.glob("{}/*pngs".format(pngs_path))))
+
+
+def plot_var(varname, varpath, outpath, client, res=(800, 600)):
+
     if not os.path.exists(outpath):
         os.makedirs(outpath)
 
@@ -77,79 +85,83 @@ def plot_var(varname, varpath, outpath, client):
     for root, _, files in os.walk(varpath):
         if not files:
             continue
-        for f in files:
+        pbar = tqdm(files)
+        for f in pbar:
             inpath = os.path.join(root, f)
             out = os.path.join(outpath, varname)
 
-            print('Rendering', inpath, out)
+            _, filename = os.path.split(inpath)
+
             if client:
                 futures.append(
                     client.submit(make_pngs, inpath, out, varname))
             else:
+                pbar.set_description('Rendering png: {}-{}', varname, filename)
                 pngs_paths.extend(make_pngs(inpath, out, varname, serial=True))
 
     if client:
-        for f in futures:
-            pngs_paths.append(f.result())
+        for f, res in as_completed(futures, with_results=True):
+            pbar.set_description('Rendering pngs: {}-{}', varname, filename)
+            pngs_paths.append(res)
 
-    x = vcs.init(geometry=(1200, 1000))
+    _, head = os.path.split(pngs_paths)
+    print("Setting up mpeg4")
     if client:
-        print(pngs_paths)
-        client.submit(x.ffmpeg(anim_out_path, pngs_paths))
+        client.submit(make_mp4, varname, head))
     else:
-        x.ffmpeg(anim_out_path, pngs_paths)
+        make_mp4(varname, head)
 
 
 def main():
 
-    args_ = parse_args()
+    args_=parse_args()
 
 
     if not args_.serial:
         print("starting cluster")
-        cluster = SLURMCluster(cores=4,
-                               memory="1 M",
-                               project="e3sm",
-                               walltime="01:00:00",
-                               queue="slurm")
+        cluster=SLURMCluster(cores = 4,
+                               memory = "1 M",
+                               project = "e3sm",
+                               walltime = "02:00:00",
+                               queue = "slurm")
         cluster.start_workers(args_.nodes)
-        client = Client(cluster)
+        client=Client(cluster)
     else:
-        client = None
+        client=None
 
-    futures = list()
+    futures=list()
 
     if not os.path.exists(args_.cmip_dir):
         raise ValueError("invalid data directory")
 
     if args_.ens != ['all']:
-        variant_ids = ["r{}i1p1f1".format(x) for x in args_.ens]
+        variant_ids=["r{}i1p1f1".format(x) for x in args_.ens]
 
     if not isinstance(args_.variables, list):
-        args_.variables = [args_.variables]
+        args_.variables=[args_.variables]
 
-    cases = os.listdir(args_.cmip_dir)
+    cases=os.listdir(args_.cmip_dir)
     for case in cases:
         if case not in args_.tables and args_.tables != ['all']:
             continue
 
-        ens = os.listdir(os.path.join(args_.cmip_dir, case))
+        ens=os.listdir(os.path.join(args_.cmip_dir, case))
         for e in ens:
             if args_.ens != ['all'] and e not in variant_ids:
                 continue
 
-            tables = os.listdir(os.path.join(args_.cmip_dir,  case, e))
+            tables=os.listdir(os.path.join(args_.cmip_dir,  case, e))
 
             for table in tables:
                 if args_.tables != ['all'] and table not in args_.tables:
                     continue
 
-                variables = os.listdir(os.path.join(
+                variables=os.listdir(os.path.join(
                     args_.cmip_dir,  case, e, table))
                 for var in variables:
                     if var not in args_.variables and args_.variables != ['all']:
                         continue
-                    varpath = os.path.join(
+                    varpath=os.path.join(
                         args_.cmip_dir,  case, e, table, var)
                     plot_var(varname=var, varpath=varpath,
                              outpath=args_.output, client=client)
