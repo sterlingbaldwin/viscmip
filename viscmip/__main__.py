@@ -107,7 +107,7 @@ def plot_var(varname, varpath, outpath, client, res=(800, 600)):
     _, head = os.path.split(pngs_paths)
     print("Setting up mpeg4")
     if client:
-        client.submit(make_mp4, varname, head))
+        client.submit(make_mp4, varname, head)
     else:
         make_mp4(varname, head)
 
