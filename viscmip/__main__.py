@@ -34,10 +34,12 @@ def parse_args():
 
 
 def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600)):
+    
     import vcs
+    canvas = vcs.init(geometry=res)
+    
     dataset = cdms2.open(inpath)
     vardata = dataset[varname]
-    x = vcs.init(geometry=res)
 
     pngs_path = os.path.join(outpath, 'pngs')
     if not os.path.exists(pngs_path):
@@ -54,9 +56,10 @@ def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600)):
             print("png {} already exists")
             continue
 
-        x.clear()
-        x.plot(vardata[step])
-        x.png(png, width=res[0], height=res[1], units='pixels')
+        canvas.clear()
+        canvas.plot(vardata[step])
+        canvas.png(png, width=res[0], height=res[1], units='pixels')
+        
         pngs.append(png)
         # if serial:
         pbar.set_description("plotting: {} - {}".format(varname, time))
@@ -87,7 +90,7 @@ def plot_var(varname, varpath, outpath, client, res=(800, 600)):
         if not files:
             continue
         pbar = tqdm(files)
-        for f in pbar:
+        for f in files:
             inpath = os.path.join(root, f)
             out = os.path.join(outpath, varname)
 
@@ -99,12 +102,15 @@ def plot_var(varname, varpath, outpath, client, res=(800, 600)):
             else:
                 pbar.set_description('Rendering png: {}-{}', varname, filename)
                 pngs_paths.extend(make_pngs(inpath, out, varname, serial=True))
+                pbar.update(1)
+        break
 
     if client:
         for future, png in as_completed(futures, with_results=True):
+            pbar.update(1)
             pbar.set_description('Rendering pngs: {}-{}', varname, filename)
             pngs_paths.extend(png)
-
+        pbar.close()
     _, head = os.path.split(pngs_paths[0])
     print("Setting up mpeg4")
     if client:
@@ -127,8 +133,11 @@ def main():
         #                        project = "e3sm",
         #                        walltime = "02:00:00",
         #                        queue = "slurm")
-        cluster = LocalCluster(args_.nodes)
-        client=Client(cluster)
+        cluster = LocalCluster(
+            n_workers=args_.nodes,
+            threads_per_worker=4,
+            interface='lo')
+        client=Client(address=cluster.scheduler_address)
     else:
         client=None
 
