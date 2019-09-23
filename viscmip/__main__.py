@@ -100,7 +100,7 @@ def plot_var(varname, varpath, outpath, client, res=(800, 600)):
                 futures.append(
                     client.submit(make_pngs, inpath, out, varname))
             else:
-                pbar.set_description('Rendering png: {}-{}', varname, filename)
+                pbar.set_description('Rendering png: {}-{}'.format(varname, filename))
                 pngs_paths.extend(make_pngs(inpath, out, varname, serial=True))
                 pbar.update(1)
         break
@@ -108,7 +108,7 @@ def plot_var(varname, varpath, outpath, client, res=(800, 600)):
     if client:
         for future, png in as_completed(futures, with_results=True):
             pbar.update(1)
-            pbar.set_description('Rendering pngs: {}-{}', varname, filename)
+            pbar.set_description('Rendering png: {}-{}'.format(varname, filename))
             pngs_paths.extend(png)
         pbar.close()
     _, head = os.path.split(pngs_paths[0])
