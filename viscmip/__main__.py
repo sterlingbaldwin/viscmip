@@ -34,7 +34,7 @@ def parse_args():
     return args_
 
 
-def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600), minmax=None:
+def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600), minmax=None):
     
     import vcs
     canvas = vcs.init(geometry=res)
