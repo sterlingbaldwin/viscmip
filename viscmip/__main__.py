@@ -93,14 +93,13 @@ def plot_var(varname, varpath, outpath, client, res=(800, 600)):
     pngs_paths = list()
     if client:
         futures = list()
-    filedata = cdms2.open(files[0])
-    vardata = filedata[varname]
-    min, max = vcs.minmax(data)
     for root, _, files in os.walk(varpath):
         if not files:
             continue
         pbar = tqdm(files)
-
+        filedata = cdms2.open(files[0])
+        vardata = filedata[varname]
+        min, max = vcs.minmax(data)
         for f in files:
             inpath = os.path.join(root, f)
             out = os.path.join(outpath, varname)
