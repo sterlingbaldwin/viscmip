@@ -5,6 +5,7 @@ import glob
 import cdms2
 
 from tqdm import tqdm
+# from multiprocessing import Pool
 from dask_jobqueue import SLURMCluster
 from distributed import Client, as_completed, LocalCluster
 
@@ -33,7 +34,7 @@ def parse_args():
     return args_
 
 
-def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600)):
+def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600), minmax=None:
     
     import vcs
     canvas = vcs.init(geometry=res)
@@ -48,6 +49,13 @@ def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600)):
     pngs = list()
     # assuming that the 0th axis is time
     # if serial:
+    iso = vcs.createisofill()
+    if minmax:
+        levels = vcs.mkscale(minmax[0], minmax[1])
+        colors = vcs.getcolors(levels)
+        iso.levels = levels
+        iso.fillareacolors = colors
+
     pbar = tqdm(total=vardata.shape[0], desc="starting: {}".format(varname))
     for step in range(vardata.shape[0]):
         time = int(round(vardata.getTime()[step]))
@@ -57,7 +65,7 @@ def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600)):
             continue
 
         canvas.clear()
-        canvas.plot(vardata[step])
+        canvas.plot(vardata[step], iso)
         canvas.png(png, width=res[0], height=res[1], units='pixels')
         
         pngs.append(png)
@@ -85,11 +93,14 @@ def plot_var(varname, varpath, outpath, client, res=(800, 600)):
     pngs_paths = list()
     if client:
         futures = list()
-
+    filedata = cdms2.open(files[0])
+    vardata = filedata[varname]
+    min, max = vcs.minmax(data)
     for root, _, files in os.walk(varpath):
         if not files:
             continue
         pbar = tqdm(files)
+
         for f in files:
             inpath = os.path.join(root, f)
             out = os.path.join(outpath, varname)
@@ -98,10 +109,10 @@ def plot_var(varname, varpath, outpath, client, res=(800, 600)):
 
             if client:
                 futures.append(
-                    client.submit(make_pngs, inpath, out, varname))
+                    client.submit(make_pngs, inpath, out, varname, (min, max)))
             else:
                 pbar.set_description('Rendering png: {}-{}'.format(varname, filename))
-                pngs_paths.extend(make_pngs(inpath, out, varname, serial=True))
+                pngs_paths.extend(make_pngs(inpath, out, varname, serial=True, (min, max)))
                 pbar.update(1)
         break
 
@@ -112,6 +123,7 @@ def plot_var(varname, varpath, outpath, client, res=(800, 600)):
             pngs_paths.extend(png)
         pbar.close()
     _, head = os.path.split(pngs_paths[0])
+    import ipdb; ipdb.set_trace()
     print("Setting up mpeg4")
     if client:
         f = client.submit(make_mp4, varname, head)
