@@ -97,7 +97,7 @@ def plot_var(varname, varpath, outpath, client, res=(800, 600)):
         if not files:
             continue
         pbar = tqdm(files)
-        filedata = cdms2.open(files[0])
+        filedata = cdms2.open(os.path.join(root, files[0]))
         vardata = filedata[varname]
         min, max = vcs.minmax(data)
         for f in files:
