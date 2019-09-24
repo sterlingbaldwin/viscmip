@@ -86,7 +86,7 @@ def make_mp4(varname, pngs_path, res=(800, 600)):
 
 
 def plot_var(varname, varpath, outpath, client, res=(800, 600)):
-
+    import vcs
     if not os.path.exists(outpath):
         os.makedirs(outpath)
 
