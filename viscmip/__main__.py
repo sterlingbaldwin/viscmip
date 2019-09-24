@@ -109,10 +109,10 @@ def plot_var(varname, varpath, outpath, client, res=(800, 600)):
 
             if client:
                 futures.append(
-                    client.submit(make_pngs, inpath, out, varname, (min, max)))
+                    client.submit(make_pngs, inpath, out, varname, minmax=(min, max)))
             else:
                 pbar.set_description('Rendering png: {}-{}'.format(varname, filename))
-                pngs_paths.extend(make_pngs(inpath, out, varname, serial=True, (min, max)))
+                pngs_paths.extend(make_pngs(inpath, out, varname, serial=True, minmax=(min, max)))
                 pbar.update(1)
         break
 
