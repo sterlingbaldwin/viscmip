@@ -91,14 +91,15 @@ def plotminmax(outpath, mins, maxs, varname):
 
 
     template = vcs.createtemplate()
-    template.blank(["mean", "min", "max"])
     template.scale(.9)
     template.move(.05,'x')
     
     gm.datawc_y1 = mn
     gm.datawc_y2 = mx
 
+    template.blank(["max"])
     canvas.plot(mins, gm, template, id=varname)
+    template.blank(["min"])
     canvas.plot(maxs, gm, template, id=varname)
     
     canvas.png(outpath)
