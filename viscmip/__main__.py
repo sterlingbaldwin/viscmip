@@ -1,193 +1,179 @@
 import os
 import sys
 import argparse
-import glob
 import cdms2
+import vcs
 
 from tqdm import tqdm
-# from multiprocessing import Pool
-from dask_jobqueue import SLURMCluster
+import numpy as np
 from distributed import Client, as_completed, LocalCluster
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('cmip_dir', help="the source CMIP6 directory")
+    parser.add_argument('-p', '--plot', action="store_true")
     parser.add_argument(
         '-o', '--output', help="output path, default is ./animations", default="animations")
     parser.add_argument(
-        '-c', '--cases', help="the list of cases to animate, default is all", default=["all"])
+        '-c', '--cases', help="the list of cases to animate, default is all", nargs="*", default=["all"])
     parser.add_argument(
-        '-e', '--ens', help="the ensemble members to animate, default is all", default=["all"])
+        '-e', '--ens', help="the ensemble members to animate, default is all", nargs="*", default=["all"])
     parser.add_argument(
         '-l', '--length', help="how many time steps to animate, default is all", default="all")
     parser.add_argument(
-        '-v', '--variables', help="which variables to animate, default is all", default=["all"])
+        '-v', '--variables', help="which variables to animate, default is all", nargs="*", default=["all"])
     parser.add_argument(
-        '-t', '--tables', help="a list of tables to animate, default is all", default=["all"])
+        '-t', '--tables', help="a list of tables to animate, default is all", nargs="*", default=["all"])
     parser.add_argument(
         '-n', '--nodes', help="the number of nodes to use to plot in parallel, default = 1", default=1, type=int)
-    parser.add_argument(
-        '-s', '--serial', help="run on the local node, nothing is submitted to slurm", action="store_true")
-
     args_ = parser.parse_args(sys.argv[1:])
     return args_
 
 
-def make_pngs(inpath, outpath, varname, serial=False, res=(800, 600), minmax=None):
-    
-    import vcs
-    canvas = vcs.init(geometry=res)
-    
-    dataset = cdms2.open(inpath)
-    vardata = dataset[varname]
+def run_minmax(inpath, varname, i):
 
-    pngs_path = os.path.join(outpath, 'pngs')
-    if not os.path.exists(pngs_path):
-        os.makedirs(pngs_path)
-
-    pngs = list()
-    # assuming that the 0th axis is time
-    # if serial:
-    iso = vcs.createisofill()
-    if minmax:
-        levels = vcs.mkscale(minmax[0], minmax[1])
-        colors = vcs.getcolors(levels)
-        iso.levels = levels
-        iso.fillareacolors = colors
-
-    pbar = tqdm(total=vardata.shape[0], desc="starting: {}".format(varname))
+    mins = []
+    maxs = []
+    filedata = cdms2.open(inpath)
+    vardata = filedata[varname]
     for step in range(vardata.shape[0]):
-        time = int(round(vardata.getTime()[step]))
-        png = os.path.join(pngs_path, '{}.png'.format(time))
-        if os.path.exists(png):
-            print("png {} already exists")
-            continue
-
-        canvas.clear()
-        canvas.plot(vardata[step], iso)
-        canvas.png(png, width=res[0], height=res[1], units='pixels')
-        
-        pngs.append(png)
-        # if serial:
-        pbar.set_description("plotting: {} - {}".format(varname, time))
-        pbar.update(1)
-    # if serial:
-    pbar.close()
-
-    return pngs
+        stepdata = vardata[step]
+        minmax = vcs.minmax(stepdata)
+        mins.append(minmax[0])
+        maxs.append(minmax[1])
+    return mins, maxs, i
 
 
-def make_mp4(varname, pngs_path, res=(800, 600)):
-    import vcs
-    canvas = vcs.init(geometry=res)
-    canvas.ffmpeg('{}.mp4'.format(varname), sorted(
-        glob.glob("{}/*pngs".format(pngs_path))))
+def get_std(mins, maxs, client):
+    mins_std_future = client.submit(np.std, mins)
+    maxs_std_future = client.submit(np.std, maxs)
+    return mins_std_future.result(), maxs_std_future.result()
 
 
-def plot_var(varname, varpath, outpath, client, res=(800, 600)):
-    import vcs
-    if not os.path.exists(outpath):
-        os.makedirs(outpath)
+def get_minmax(varname, varpath, client):
 
-    pngs_paths = list()
-    if client:
-        futures = list()
+    futures = list()
+    numfiles = 0
     for root, _, files in os.walk(varpath):
         if not files:
             continue
-        pbar = tqdm(files)
-        filedata = cdms2.open(os.path.join(root, files[0]))
-        vardata = filedata[varname]
-        min, max = vcs.minmax(vardata)
-        for f in files:
+        numfiles = len(files)
+        pbar = tqdm(files, desc="{}".format(varname))
+        for i, f in enumerate(sorted(files)):
             inpath = os.path.join(root, f)
-            out = os.path.join(outpath, varname)
+            futures.append(client.submit(run_minmax, inpath, varname, i))
 
-            _, filename = os.path.split(inpath)
+    mins = []
+    mins2d = [[] for x in range(numfiles)]
+    maxs = []
+    maxs2d = [[] for x in range(numfiles)]
+    for future, minmax in as_completed(futures, with_results=True):
+        pbar.update(1)
+        mins2d[minmax[2]] = minmax[0]
+        maxs2d[minmax[2]] = minmax[1]
 
-            if client:
-                futures.append(
-                    client.submit(make_pngs, inpath, out, varname, minmax=(min, max)))
-            else:
-                pbar.set_description('Rendering png: {}-{}'.format(varname, filename))
-                pngs_paths.extend(make_pngs(inpath, out, varname, serial=True, minmax=(min, max)))
-                pbar.update(1)
-        break
+    pbar.close()
+    for l in mins2d:
+        for i in l:
+            mins.append(i)
+    for l in maxs2d:
+        for i in l:
+            maxs.append(i)
+    return mins, maxs
 
-    if client:
-        for future, png in as_completed(futures, with_results=True):
-            pbar.update(1)
-            pbar.set_description('Rendering png: {}-{}'.format(varname, filename))
-            pngs_paths.extend(png)
-        pbar.close()
-    _, head = os.path.split(pngs_paths[0])
-    import ipdb; ipdb.set_trace()
-    print("Setting up mpeg4")
-    if client:
-        f = client.submit(make_mp4, varname, head)
-        f.result()
 
-    else:
-        make_mp4(varname, head)
+def plotminmax(outpath, mins, maxs, varname):
+    canvas = vcs.init()
+    gm = vcs.create1d()
+    mn, mx = vcs.minmax(mins, maxs)
+    
+
+
+    template = vcs.createtemplate()
+    template.blank(["mean", "min", "max"])
+    template.scale(.9)
+    template.move(.05,'x')
+    
+    gm.datawc_y1 = mn
+    gm.datawc_y2 = mx
+
+    canvas.plot(mins, gm, template, id=varname)
+    canvas.plot(maxs, gm, template, id=varname)
+    
+    canvas.png(outpath)
+    canvas.clear()
+
+
+def find_minmax_issue(mins, maxs):
+    for idx, _ in enumerate(mins):
+        if mins[idx] == 0.0 and maxs[idx] == 1.0:
+            return True, idx
+    return False, None
 
 
 def main():
 
-    args_=parse_args()
-
-
-    if not args_.serial:
-        print("starting cluster")
-        # cluster=SLURMCluster(cores = 4,
-        #                        memory = "1 M",
-        #                        project = "e3sm",
-        #                        walltime = "02:00:00",
-        #                        queue = "slurm")
-        cluster = LocalCluster(
-            n_workers=args_.nodes,
-            threads_per_worker=4,
-            interface='lo')
-        client=Client(address=cluster.scheduler_address)
-    else:
-        client=None
-
-    futures=list()
+    args_ = parse_args()
+    cluster = LocalCluster(
+        n_workers=args_.nodes,
+        threads_per_worker=1,
+        interface='lo')
+    client = Client(address=cluster.scheduler_address)
 
     if not os.path.exists(args_.cmip_dir):
         raise ValueError("invalid data directory")
 
     if args_.ens != ['all']:
-        variant_ids=["r{}i1p1f1".format(x) for x in args_.ens]
+        variant_ids = ["r{}i1p1f1".format(x) for x in args_.ens]
 
     if not isinstance(args_.variables, list):
-        args_.variables=[args_.variables]
+        args_.variables = [args_.variables]
 
-    cases=os.listdir(args_.cmip_dir)
+    messages = list()
+
+    cases = os.listdir(args_.cmip_dir)
     for case in cases:
-        if case not in args_.tables and args_.tables != ['all']:
+        if case not in args_.cases and args_.cases != ['all']:
             continue
 
-        ens=os.listdir(os.path.join(args_.cmip_dir, case))
+        ens = os.listdir(os.path.join(args_.cmip_dir, case))
         for e in ens:
             if args_.ens != ['all'] and e not in variant_ids:
                 continue
 
-            tables=os.listdir(os.path.join(args_.cmip_dir,  case, e))
+            tables = os.listdir(os.path.join(args_.cmip_dir,  case, e))
 
             for table in tables:
                 if args_.tables != ['all'] and table not in args_.tables:
                     continue
 
-                variables=os.listdir(os.path.join(
+                variables = os.listdir(os.path.join(
                     args_.cmip_dir,  case, e, table))
                 for var in variables:
                     if var not in args_.variables and args_.variables != ['all']:
                         continue
-                    varpath=os.path.join(
+                    varpath = os.path.join(
                         args_.cmip_dir,  case, e, table, var)
-                    plot_var(varname=var, varpath=varpath,
-                             outpath=args_.output, client=client)
+
+                    mins, maxs = get_minmax(
+                        varname=var, varpath=varpath, client=client)
+                    issue, idx = find_minmax_issue(mins, maxs)
+                    if issue:
+                        msg = "issue found for {} at time index {}".format(
+                            var, idx)
+                        print(msg)
+                        messages.append(msg)
+                    pngpath = os.path.join(
+                        args_.output, "{case}-{ens}-{var}-minmax.png".format(case=case, ens=e, var=var))
+                    varstring = "{case}-{ens}-{var}".format(case=case, ens=e, var=var)
+                    plotminmax(pngpath, mins, maxs, varstring)
+
+    if messages:
+        for msg in messages:
+            print(msg)
+    else:
+        print("No errors found")
 
     return 0
 
