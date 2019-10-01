@@ -85,31 +85,43 @@ def get_minmax(varname, varpath, client):
 
 def plotminmax(outpath, mins, maxs, varname):
     canvas = vcs.init()
+
     gm = vcs.create1d()
     mn, mx = vcs.minmax(mins, maxs)
-    
-
-
-    template = vcs.createtemplate()
-    template.scale(.9)
-    template.move(.05,'x')
-    
     gm.datawc_y1 = mn
     gm.datawc_y2 = mx
 
-    template.blank(["max"])
+    template = vcs.createtemplate()
+    template.scale(.95)
+    template.move(.05, 'x')
+
+    template.blank(["max", "mean"])
     canvas.plot(mins, gm, template, id=varname)
-    template.blank(["min"])
+
+    template = vcs.createtemplate()
+    template.scale(.95)
+    template.move(.05, 'x')
+
+    template.blank(["min", "mean"])
     canvas.plot(maxs, gm, template, id=varname)
-    
+
     canvas.png(outpath)
     canvas.clear()
 
 
-def find_minmax_issue(mins, maxs):
+def find_minmax_issue(mins, maxs, stdmin, stdmax):
+    issues = list()
     for idx, _ in enumerate(mins):
-        if mins[idx] == 0.0 and maxs[idx] == 1.0:
-            return True, idx
+        if (mins[idx] == 0.0 and maxs[idx] == 1.0):
+            issues.append(idx)
+        elif idx == 0 or idx == len(mins) - 1:
+            continue
+        elif abs(mins[idx-1] - mins[idx]) >= 4*stdmin and abs(mins[idx+1] - mins[idx]) >= 4*stdmin:
+            issues.append(idx)
+        elif abs(maxs[idx-1] - maxs[idx]) >= 4*stdmax and abs(maxs[idx+1] - maxs[idx]) >= 4*stdmax:
+            issues.append(idx)
+    if issues:
+        return True, issues
     return False, None
 
 
@@ -159,20 +171,34 @@ def main():
 
                     mins, maxs = get_minmax(
                         varname=var, varpath=varpath, client=client)
-                    issue, idx = find_minmax_issue(mins, maxs)
+
+                    stdmin = np.std(mins)
+                    stdmax = np.std(maxs)
+                    issue, issue_indeces = find_minmax_issue(mins, maxs, stdmin, stdmax)
                     if issue:
-                        msg = "issue found for {} at time index {}".format(
-                            var, idx)
-                        print(msg)
-                        messages.append(msg)
+                        if len(issue_indeces) > 10:
+                            msg = "\tVery noisy variable: {case}-{ens}-{var}".format(
+                                case=case, ens=e, var=var)
+                            print(msg)
+                        else:
+                            for idx in issue_indeces:
+                                msg = "\tIssue found for {case}-{ens}-{var} at time index {i}".format(
+                                    case=case, ens=e, var=var, i=idx)
+                                print(msg)
+                                messages.append(msg)
                     pngpath = os.path.join(
                         args_.output, "{case}-{ens}-{var}-minmax.png".format(case=case, ens=e, var=var))
-                    varstring = "{case}-{ens}-{var}".format(case=case, ens=e, var=var)
+                    varstring = "{case}-{ens}-{var}".format(
+                        case=case, ens=e, var=var)
                     plotminmax(pngpath, mins, maxs, varstring)
 
+
     if messages:
+        print("---------------------------------------------------")
+        print("Error summary:")
         for msg in messages:
             print(msg)
+        print("---------------------------------------------------")
     else:
         print("No errors found")
 
