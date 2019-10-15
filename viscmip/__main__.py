@@ -6,13 +6,17 @@ import vcs
 
 from tqdm import tqdm
 import numpy as np
-from distributed import Client, as_completed, LocalCluster
+from distributed import Client, as_completed, LocalCluster, wait
+from concurrent.futures import as_completed as as_futures_completed
+# from multiprocessing.pool import ThreadPool
+from concurrent.futures import ThreadPoolExecutor
 
+from viscmip.plot_time_step import plot_file
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('cmip_dir', help="the source CMIP6 directory")
-    parser.add_argument('-p', '--plot', action="store_true")
+    parser.add_argument('-a', '--animate', action="store_true")
     parser.add_argument(
         '-o', '--output', help="output path, default is ./animations", default="animations")
     parser.add_argument(
@@ -50,6 +54,28 @@ def get_std(mins, maxs, client):
     maxs_std_future = client.submit(np.std, maxs)
     return mins_std_future.result(), maxs_std_future.result()
 
+def animate_variable(varname, varpath, outpath, pngpath, min, max, client):
+    futures = list()
+    # executor = ThreadPoolExecutor(max_workers=10)
+
+    numfiles = 0
+    for root, _, files in os.walk(varpath):
+        if not files:
+            continue
+        pbar = tqdm(files, desc="plotting: {}".format(varname))
+        numfiles = len(files)
+        for idx, filename in enumerate(sorted(files)):
+            inpath = os.path.join(root, filename)
+            # futures.append(executor.submit(plot_file, varname, inpath, idx, pngpath, min, max))
+            plot_file(varname, inpath, idx, pngpath, min, max)
+            pbar.update(1)
+    
+    # for _ in as_futures_completed(futures):
+    pbar.close()
+    
+    canvas = vcs.init()
+    canvas.ffmpeg(outpath, rate=5)
+
 
 def get_minmax(varname, varpath, client):
 
@@ -58,8 +84,8 @@ def get_minmax(varname, varpath, client):
     for root, _, files in os.walk(varpath):
         if not files:
             continue
+        pbar = tqdm(files, desc="checking: {}".format(varname))
         numfiles = len(files)
-        pbar = tqdm(files, desc="{}".format(varname))
         for i, f in enumerate(sorted(files)):
             inpath = os.path.join(root, f)
             futures.append(client.submit(run_minmax, inpath, varname, i))
@@ -83,7 +109,7 @@ def get_minmax(varname, varpath, client):
     return mins, maxs
 
 
-def plotminmax(outpath, mins, maxs, varname):
+def plotminmax(outpath, mins, maxs, varname, client):
     canvas = vcs.init()
 
     gm = vcs.create1d()
@@ -91,20 +117,26 @@ def plotminmax(outpath, mins, maxs, varname):
     gm.datawc_y1 = mn
     gm.datawc_y2 = mx
 
-    template = vcs.createtemplate()
-    template.scale(.95)
-    template.move(.05, 'x')
+    templatemin = vcs.createtemplate()
+    templatemin.scale(.95)
+    templatemin.move(.05, 'x')
 
-    template.blank(["max", "mean"])
-    canvas.plot(mins, gm, template, id=varname)
+    plot_futures = []
+    templatemin.blank(["max", "mean"])
+    # plot_futures.append(
+    #     client.submit(canvas.plot, gm, templatemin, id=varname))
+    canvas.plot(mins, gm, templatemin, id=varname)
 
-    template = vcs.createtemplate()
-    template.scale(.95)
-    template.move(.05, 'x')
+    templatemax = vcs.createtemplate()
+    templatemax.scale(.95)
+    templatemax.move(.05, 'x')
 
-    template.blank(["min", "mean"])
-    canvas.plot(maxs, gm, template, id=varname)
+    templatemax.blank(["min", "mean"])
+    # plot_futures.append(
+        # client.submit(canvas.plot, gm, templatemin, id=varname))
+    canvas.plot(maxs, gm, templatemax, id=varname)
 
+    # res = [x.result() for x in plot_futures]
     canvas.png(outpath)
     canvas.clear()
 
@@ -116,9 +148,11 @@ def find_minmax_issue(mins, maxs, stdmin, stdmax):
             issues.append(idx)
         elif idx == 0 or idx == len(mins) - 1:
             continue
-        elif abs(mins[idx-1] - mins[idx]) >= 4*stdmin and abs(mins[idx+1] - mins[idx]) >= 4*stdmin:
-            issues.append(idx)
-        elif abs(maxs[idx-1] - maxs[idx]) >= 4*stdmax and abs(maxs[idx+1] - maxs[idx]) >= 4*stdmax:
+
+        elif abs(mins[idx-1] - mins[idx]) >= 4*stdmin \
+            and abs(mins[idx+1] - mins[idx]) >= 4*stdmin \
+            and abs(maxs[idx-1] - maxs[idx]) >= 4*stdmax \
+            and abs(maxs[idx+1] - maxs[idx]) >= 4*stdmax:
             issues.append(idx)
     if issues:
         return True, issues
@@ -129,79 +163,98 @@ def main():
 
     args_ = parse_args()
     cluster = LocalCluster(
-        n_workers=args_.nodes,
+        n_workers=int(args_.nodes),
         threads_per_worker=1,
         interface='lo')
-    client = Client(address=cluster.scheduler_address)
+    try:
+        client = Client(address=cluster.scheduler_address)
 
-    if not os.path.exists(args_.cmip_dir):
-        raise ValueError("invalid data directory")
+        if not os.path.exists(args_.cmip_dir):
+            raise ValueError("invalid data directory")
 
-    if args_.ens != ['all']:
-        variant_ids = ["r{}i1p1f1".format(x) for x in args_.ens]
+        if args_.ens != ['all']:
+            variant_ids = ["r{}i1p1f1".format(x) for x in args_.ens]
 
-    if not isinstance(args_.variables, list):
-        args_.variables = [args_.variables]
+        if not isinstance(args_.variables, list):
+            args_.variables = [args_.variables]
 
-    messages = list()
+        messages = list()
 
-    cases = os.listdir(args_.cmip_dir)
-    for case in cases:
-        if case not in args_.cases and args_.cases != ['all']:
-            continue
-
-        ens = os.listdir(os.path.join(args_.cmip_dir, case))
-        for e in ens:
-            if args_.ens != ['all'] and e not in variant_ids:
+        cases = os.listdir(args_.cmip_dir)
+        for case in cases:
+            if case not in args_.cases and args_.cases != ['all']:
                 continue
 
-            tables = os.listdir(os.path.join(args_.cmip_dir,  case, e))
-
-            for table in tables:
-                if args_.tables != ['all'] and table not in args_.tables:
+            ens = os.listdir(os.path.join(args_.cmip_dir, case))
+            for e in ens:
+                if args_.ens != ['all'] and e not in variant_ids:
                     continue
 
-                variables = os.listdir(os.path.join(
-                    args_.cmip_dir,  case, e, table))
-                for var in variables:
-                    if var not in args_.variables and args_.variables != ['all']:
+                tables = os.listdir(os.path.join(args_.cmip_dir,  case, e))
+
+                for table in tables:
+                    if args_.tables != ['all'] and table not in args_.tables:
                         continue
-                    varpath = os.path.join(
-                        args_.cmip_dir,  case, e, table, var)
 
-                    mins, maxs = get_minmax(
-                        varname=var, varpath=varpath, client=client)
+                    variables = os.listdir(os.path.join(
+                        args_.cmip_dir,  case, e, table))
+                    minmax_futures = list()
+                    for var in variables:
+                        if var not in args_.variables and args_.variables != ['all']:
+                            continue
+                        varpath = os.path.join(
+                            args_.cmip_dir,  case, e, table, var)
+                        # minmax_futures.append(client.submit(
+                        #     get_minmax, varname=var, varpath=varpath))
+                        mins, maxs = get_minmax(
+                            varname=var, varpath=varpath, client=client)
 
-                    stdmin = np.std(mins)
-                    stdmax = np.std(maxs)
-                    issue, issue_indeces = find_minmax_issue(mins, maxs, stdmin, stdmax)
-                    if issue:
-                        if len(issue_indeces) > 10:
-                            msg = "\tVery noisy variable: {case}-{ens}-{var}".format(
-                                case=case, ens=e, var=var)
-                            print(msg)
-                        else:
-                            for idx in issue_indeces:
-                                msg = "\tIssue found for {case}-{ens}-{var} at time index {i}".format(
-                                    case=case, ens=e, var=var, i=idx)
+                        if args_.animate:
+                            min = np.amin(mins)
+                            max = np.amax(maxs)
+
+                            pngpath = os.path.join(args_.output, 'pngs', case, e, var)
+                            if not os.path.exists(pngpath):
+                                os.makedirs(pngpath)
+                            
+                            animpath = os.path.join(args_.output, 'animations')
+                            if not os.path.exists(animpath):
+                                os.makedirs(animpath)
+                            animpath = os.path.join(animpath, '{case}-{ens}-{var}.png'.format(case=case, ens=e, var=var))
+                            animate_variable(var, varpath, animpath, pngpath, min, max, client)
+
+                        # for mins, maxs in as_completed(minmax_futures):
+                        stdmin = np.std(mins)
+                        stdmax = np.std(maxs)
+                        issue, issue_indeces = find_minmax_issue(
+                            mins, maxs, stdmin, stdmax)
+                        if issue:
+                            if len(issue_indeces) > 10:
+                                msg = "\tVery noisy variable: {case}-{ens}-{var}".format(
+                                    case=case, ens=e, var=var)
                                 print(msg)
-                                messages.append(msg)
-                    pngpath = os.path.join(
-                        args_.output, "{case}-{ens}-{var}-minmax.png".format(case=case, ens=e, var=var))
-                    varstring = "{case}-{ens}-{var}".format(
-                        case=case, ens=e, var=var)
-                    plotminmax(pngpath, mins, maxs, varstring)
+                            else:
+                                for idx in issue_indeces:
+                                    msg = "\tIssue found for {case}-{ens}-{var} at time index {i}".format(
+                                        case=case, ens=e, var=var, i=idx)
+                                    print(msg)
+                                    messages.append(msg)
+                        pngpath = os.path.join(
+                            args_.output, "{case}-{ens}-{var}-minmax.png".format(case=case, ens=e, var=var))
+                        varstring = "{case}-{ens}-{var}".format(
+                            case=case, ens=e, var=var)
+                        plotminmax(pngpath, mins, maxs, varstring, client)
 
-
-    if messages:
-        print("---------------------------------------------------")
-        print("Error summary:")
-        for msg in messages:
-            print(msg)
-        print("---------------------------------------------------")
-    else:
-        print("No errors found")
-
+        if messages:
+            print("---------------------------------------------------")
+            print("Error summary:")
+            for msg in messages:
+                print(msg)
+            print("---------------------------------------------------")
+        else:
+            print("No errors found")
+    finally:
+        cluster.close()
     return 0
 
 
